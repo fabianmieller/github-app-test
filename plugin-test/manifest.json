@@ -17,7 +17,7 @@
             "download": "http://downloadlink.com",
             "hash": "01bba586cb22d63ccb46060bf25f4e786df5c485ce977567d994eeb50968475c",
             "require": {
-                "php": "7.2-5.19",
+                "php": "7.2.19",
                 "pro": "1.11.0",
                 "wordpress": "5.0"
             }
