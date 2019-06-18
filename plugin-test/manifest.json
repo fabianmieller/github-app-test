@@ -19,7 +19,7 @@
             "require": {
                 "php": 1.2,
                 "pro": 123,
-                "wordpress": 522-23,
+                "wordpress": 522
             }
         }
     ]
