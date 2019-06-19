@@ -7,6 +7,7 @@ const { createChecks } = require('./scripts/createChecks');
 
 const fs = require('fs');
 const Ajv = require('ajv');
+const {basename} = require('path');
 
 const schemaName = 'info-json';
 const ajv = Ajv({ allErrors: true });
@@ -43,6 +44,7 @@ module.exports = app => {
         const sha = pr.head.sha;
         const repo = pr.base.repo.name;
         const org = pr.base.repo.owner.login;
+        const contextChecks = context.github.checks;
 
         const files = await context.github.pullRequests.listFiles({
             number: pr.number,
@@ -72,43 +74,72 @@ module.exports = app => {
 
             // content will be base64 encoded
 
-            const {
-                data: { content: fileContent },
-            } = await context.github.repos.getContents({
-                owner: org,
-                repo: repo,
-                path: `${file.filename}?ref=${sha}`,
-            });
+            app.log(basename(file.filename));
 
-            const response = validateSchema(
-                schemaName,
-                JSON.parse(Buffer.from(fileContent, 'base64').toString())
-            );
+            if(basename(file.filename) === "manifest.json") {
 
-            // validate file
-            if (response === undefined) {
-                checks.push(
-                    createChecks(
-                        pr,
-                        'Manifest Scanner',
-                        'completed',
-                        'success',
-                        {
-                            title: 'All tests successfull',
-                            summary: '',
-                        }
-                    )
+                app.log(basename(file.filename));
+
+                const {
+                    data: { content: fileContent },
+                } = await context.github.repos.getContents({
+                    owner: org,
+                    repo: repo,
+                    path: `${file.filename}?ref=${sha}`,
+                });
+
+                const response = validateSchema(
+                    schemaName,
+                    JSON.parse(Buffer.from(fileContent, 'base64').toString())
                 );
+
+                // validate file
+                if (response === undefined) {
+                    checks.push(
+                        createChecks(
+                            contextChecks,
+                            pr,
+                            org,
+                            repo,
+                            'Manifest Scanner',
+                            'completed',
+                            'success',
+                            {
+                                title: 'All tests successfull',
+                                summary: '',
+                            }
+                        )
+                    );
+                } else {
+                    checks.push(
+                        createChecks(
+                            contextChecks,
+                            pr,
+                            org,
+                            repo,
+                            'Manifest Scanner',
+                            'completed',
+                            'action_required',
+                            {
+                                title: response.errors.length + ' Issues found',
+                                summary: JSON.stringify(response.errors, null, 2),
+                            }
+                        )
+                    );
+                }
             } else {
                 checks.push(
                     createChecks(
+                        contextChecks,
                         pr,
-                        'Manifest Scanner',
+                        org,
+                        repo,
+                        'Other File Scanner',
                         'completed',
                         'action_required',
                         {
-                            title: response.errors.length + ' Issues found',
-                            summary: JSON.stringify(response.errors, null, 2),
+                            title: 'New files found',
+                            summary: '',
                         }
                     )
                 );
