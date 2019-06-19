@@ -7,7 +7,7 @@ const { createChecks } = require('./scripts/createChecks');
 
 const fs = require('fs');
 const Ajv = require('ajv');
-const {basename} = require('path');
+const { basename, dirname } = require('path');
 
 const schemaName = 'info-json';
 const ajv = Ajv({ allErrors: true });
@@ -37,11 +37,14 @@ module.exports = app => {
     }
 
     app.on('pull_request', async context => {
+        // files: readme (multiple), manifest.json (1x), images (multiple)
+
         const pr = context.payload.pull_request;
 
         if (!pr || pr.state !== 'open') return;
 
         const sha = pr.head.sha;
+        const user = pr.base.user;
         const repo = pr.base.repo.name;
         const org = pr.base.repo.owner.login;
         const contextChecks = context.github.checks;
@@ -52,81 +55,136 @@ module.exports = app => {
             repo: repo,
         });
 
+        // get folder from first file
+        // check folder from pull request
+        // format namespace/name
+        // save folder name
+        const folderName = dirname(files.data[1].filename);
+
+        // get manifest file
+        const {
+            data: { content: manifestRepo },
+        } = await context.github.repos.getContents({
+            owner: org,
+            repo: repo,
+            path: `${folderName}/manifest.json`,
+        } || {});
+
+        // parse manifest content
+        const manifestRepoContent = JSON.parse(
+            Buffer.from(manifestRepo, 'base64').toString()
+        );
+
+        // if manifest file found
+        // merge base check owner
+        app.log(manifestRepoContent.maintainer);
+        app.log(user.login);
+
+        if(manifestRepoContent.maintainer !== user.login) {
+            return createChecks(
+                contextChecks,
+                pr,
+                org,
+                repo,
+                'Maintainer Scanner',
+                'completed',
+                'action_required',
+                {
+                    title: 'Pull request not allowed',
+                    summary: 'You are not allowed to create a pull request for this plugin.',
+                }
+            )
+
+            // close pull request automatically
+        }
+
+        // get manifest file with foldername
+        // if not found get manifest file manuell with foldername
+        const { filename: manifestFilename } = files.data.find(ele =>
+            ele.filename.includes('manifest.json')
+        ) || {};
+
+        const {
+            data: { content: fileContent },
+        } = await context.github.repos.getContents({
+            owner: org,
+            repo: repo,
+            path: `${manifestFilename}?ref=${sha}`,
+        } || {});
+
+        if (fileContent === undefined ) {
+            return createChecks(
+                contextChecks,
+                pr,
+                org,
+                repo,
+                'Manifest Scanner',
+                'completed',
+                'action_required',
+                {
+                    title: '1 Issues found',
+                    summary: 'manifest.json not found',
+                }
+            )
+        }
+
+        const manifestContent = JSON.parse(
+            Buffer.from(fileContent, 'base64').toString()
+        );
+
         const checks = [];
 
+        // validate manifest file
+        if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
+            checks.push(
+                createChecks(
+                    contextChecks,
+                    pr,
+                    org,
+                    repo,
+                    'Manifest Scanner',
+                    'completed',
+                    'action_required',
+                    {
+                        title: '1 Issues found',
+                        summary: 'manifest.json not found',
+                    }
+                )
+            );
+        } else {
+            checks.push(
+                createChecks(
+                    contextChecks,
+                    pr,
+                    org,
+                    repo,
+                    'Manifest Scanner',
+                    'completed',
+                    'action_required',
+                    {
+                        title: response.errors.length + ' Issues found',
+                        summary: JSON.stringify(
+                            response.errors,
+                            null,
+                            2
+                        ),
+                    }
+                )
+            )
+        }
+
+        // version object key readme: path to readme
+        // get all files from repo an check folder with readme path
+
+        // check changed files
         for (const file of files.data) {
-            // if manifest file found
-            // check folder from pull request
-            // format namespace/name
-
-            // save folder name
-            // next get folder name and check with prev folder name
-            // only one folder
-
-            // files: readme (multiple), manifest.json (1x), images (multiple)
-            // version object key readme: path to readme
-            // get all files from repo an check folder with readme path
-
-            // check prev/all commit/pull requests
-
-            // Important: check if manifest destroyed, are all checks successful? if new file successful
-            // Important: everytime check manifest
-
-            // content will be base64 encoded
+            // get folder name and check with saved folder name
+            // only one folder for one pull request
 
             app.log(basename(file.filename));
 
-            if(basename(file.filename) === "manifest.json") {
+            if (basename(file.filename) === 'manifest.json') {
 
-                app.log(basename(file.filename));
-
-                const {
-                    data: { content: fileContent },
-                } = await context.github.repos.getContents({
-                    owner: org,
-                    repo: repo,
-                    path: `${file.filename}?ref=${sha}`,
-                });
-
-                const response = validateSchema(
-                    schemaName,
-                    JSON.parse(Buffer.from(fileContent, 'base64').toString())
-                );
-
-                // validate file
-                if (response === undefined) {
-                    checks.push(
-                        createChecks(
-                            contextChecks,
-                            pr,
-                            org,
-                            repo,
-                            'Manifest Scanner',
-                            'completed',
-                            'success',
-                            {
-                                title: 'All tests successfull',
-                                summary: '',
-                            }
-                        )
-                    );
-                } else {
-                    checks.push(
-                        createChecks(
-                            contextChecks,
-                            pr,
-                            org,
-                            repo,
-                            'Manifest Scanner',
-                            'completed',
-                            'action_required',
-                            {
-                                title: response.errors.length + ' Issues found',
-                                summary: JSON.stringify(response.errors, null, 2),
-                            }
-                        )
-                    );
-                }
             } else {
                 checks.push(
                     createChecks(
@@ -144,6 +202,7 @@ module.exports = app => {
                     )
                 );
             }
+
         }
 
         return checks;
