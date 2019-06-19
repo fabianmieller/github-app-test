@@ -43,6 +43,7 @@ module.exports = app => {
 
         if (!pr || pr.state !== 'open') return;
 
+        const checks = [];
         const sha = pr.head.sha;
         const user = pr.base.user;
         const repo = pr.base.repo.name;
@@ -80,7 +81,8 @@ module.exports = app => {
         app.log(manifestRepoContent.maintainer);
         app.log(user.login);
 
-        if(manifestRepoContent.maintainer !== user.login) {
+        // if(manifestRepoContent.maintainer !== user.login) {
+        if('fabianmieller' !== user.login) {
             return createChecks(
                 contextChecks,
                 pr,
@@ -96,6 +98,22 @@ module.exports = app => {
             )
 
             // close pull request automatically
+        } else {
+            checks.push(
+                createChecks(
+                    contextChecks,
+                    pr,
+                    org,
+                    repo,
+                    'Maintainer Scanner',
+                    'completed',
+                    'success',
+                    {
+                        title: 'Pull request is allowed',
+                        summary: '',
+                    }
+                )
+            )
         }
 
         // get manifest file with foldername
@@ -132,8 +150,6 @@ module.exports = app => {
             Buffer.from(fileContent, 'base64').toString()
         );
 
-        const checks = [];
-
         // validate manifest file
         if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
             checks.push(
@@ -144,10 +160,10 @@ module.exports = app => {
                     repo,
                     'Manifest Scanner',
                     'completed',
-                    'action_required',
+                    'success',
                     {
-                        title: '1 Issues found',
-                        summary: 'manifest.json not found',
+                        title: 'Manifest file is valid',
+                        summary: '',
                     }
                 )
             );
