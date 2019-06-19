@@ -3,7 +3,7 @@
     "maintainer": "Fabian Mieller",
     "versions": [
         {
-            "version": "0.0.2",
+            "version": "break",
             "download": "http://downloadlink.com",
             "hash": "fb6e2acebd55c2c8144580e99a71bb327c45806592c9283228a5c4920dcd12ad",
             "require": {
