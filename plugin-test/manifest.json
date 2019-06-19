@@ -8,7 +8,7 @@
             "hash": "fb6e2acebd55c2c8144580e99a71bb327c45806592c9283228a5c4920dcd12ad",
             "require": {
                 "php": "7.2.19",
-                "pro": "1.21.0",
+                "pro": "1.20.0",
                 "wordpress": "5.2"
             }
         },
