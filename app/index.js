@@ -3,6 +3,8 @@
  * @param {import('probot').Application} app
  */
 
+const { createChecks } = require('./scripts/createChecks');
+
 const fs = require('fs');
 const Ajv = require('ajv');
 
@@ -51,7 +53,6 @@ module.exports = app => {
         const checks = [];
 
         for (const file of files.data) {
-
             // if manifest file found
             // check folder from pull request
             // format namespace/name
@@ -87,35 +88,29 @@ module.exports = app => {
             // validate file
             if (response === undefined) {
                 checks.push(
-                    context.github.checks.create({
-                        owner: org,
-                        repo: repo,
-                        name: 'Manifest Scanner',
-                        head_sha: pr.head.sha,
-                        status: 'completed',
-                        conclusion: 'success',
-                        completed_at: new Date().toISOString(),
-                        output: {
+                    createChecks(
+                        pr,
+                        'Manifest Scanner',
+                        'completed',
+                        'success',
+                        {
                             title: 'All tests successfull',
                             summary: '',
-                        },
-                    })
+                        }
+                    )
                 );
             } else {
                 checks.push(
-                    context.github.checks.create({
-                        owner: org,
-                        repo: repo,
-                        name: 'Manifest Scanner',
-                        head_sha: pr.head.sha,
-                        status: 'completed',
-                        conclusion: 'action_required',
-                        completed_at: new Date().toISOString(),
-                        output: {
+                    createChecks(
+                        pr,
+                        'Manifest Scanner',
+                        'completed',
+                        'action_required',
+                        {
                             title: response.errors.length + ' Issues found',
                             summary: JSON.stringify(response.errors, null, 2),
-                        },
-                    })
+                        }
+                    )
                 );
             }
         }
