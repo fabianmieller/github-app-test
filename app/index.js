@@ -58,62 +58,83 @@ module.exports = app => {
 
         // get folder from first file
         // check folder from pull request
-        // format namespace/name
         // save folder name
         const folderName = dirname(files.data[1].filename);
 
+        if(folderName === '.') {
+            // close pr with comment
+            context.github.issues.createComment(context.issue({body: 'You are not allowed to create a pull request in this directory.'}))
+            context.github.issues.edit(context.issue({state: 'closed'}))
+        }
+
         // get manifest file
-        const {
-            data: { content: manifestRepo },
-        } = await context.github.repos.getContents({
+        const manifestData = await context.github.repos.getContents({
             owner: org,
             repo: repo,
             path: `${folderName}/manifest.json`,
-        } || {});
+        }).then(data => {
+            return data;
+        })
+        .catch(err => {
+            return {};
+        });
 
-        // parse manifest content
-        const manifestRepoContent = JSON.parse(
-            Buffer.from(manifestRepo, 'base64').toString()
-        );
+        if(Object.keys(manifestData).length) {
+            // parse manifest content
+            const manifestRepoContent = JSON.parse(
+                Buffer.from(manifestData.data.content, 'base64').toString()
+            );
 
-        // if manifest file found
-        // merge base check owner
-        app.log(manifestRepoContent.maintainer);
-        app.log(user.login);
+            app.log(manifestRepoContent.maintainer);
+            app.log(user.login);
 
-        // if(manifestRepoContent.maintainer !== user.login) {
-        if('fabianmieller' !== user.login) {
-            return createChecks(
-                contextChecks,
-                pr,
-                org,
-                repo,
-                'Maintainer Scanner',
-                'completed',
-                'action_required',
-                {
-                    title: 'Pull request not allowed',
-                    summary: 'You are not allowed to create a pull request for this plugin.',
-                }
-            )
-
-            // close pull request automatically
-        } else {
-            checks.push(
-                createChecks(
+            // merge base check owner
+            // if(manifestRepoContent.maintainer !== user.login) {
+            if('fabianmieller' === user.login) {
+                checks.push(
+                    createChecks(
+                        contextChecks,
+                        pr,
+                        org,
+                        repo,
+                        'Maintainer Scanner',
+                        'completed',
+                        'success',
+                        {
+                            title: 'Pull request is allowed',
+                            summary: '',
+                        }
+                    )
+                )
+            } else {
+                return createChecks(
                     contextChecks,
                     pr,
                     org,
                     repo,
                     'Maintainer Scanner',
                     'completed',
-                    'success',
+                    'action_required',
                     {
-                        title: 'Pull request is allowed',
-                        summary: '',
+                        title: 'Pull request not allowed',
+                        summary: 'You are not allowed to create a pull request for this plugin.',
                     }
                 )
-            )
+            }
+        } else {
+             // return createChecks(
+            //     contextChecks,
+            //     pr,
+            //     org,
+            //     repo,
+            //     'Manifest Scanner',
+            //     'completed',
+            //     'action_required',
+            //     {
+            //         title: '1 Issues found',
+            //         summary: 'manifest.json not found',
+            //     }
+            // );
         }
 
         // get manifest file with foldername
@@ -196,11 +217,27 @@ module.exports = app => {
         for (const file of files.data) {
             // get folder name and check with saved folder name
             // only one folder for one pull request
+            app.log(`Filename: ${basename(file.filename)}`);
+            app.log(`Foldername: ${dirname(file.filename)}`);
 
-            app.log(basename(file.filename));
+            if(dirname(file.filename) !== folderName) {
+                return createChecks(
+                    contextChecks,
+                    pr,
+                    org,
+                    repo,
+                    'File Scanner',
+                    'completed',
+                    'action_required',
+                    {
+                        title: 'Pull request not allowed',
+                        summary: 'You are not allowed to create a pull request in different folders at the same time.',
+                    }
+                )
+            }
 
             if (basename(file.filename) === 'manifest.json') {
-
+                // compare manifest json's
             } else {
                 checks.push(
                     createChecks(
@@ -220,6 +257,8 @@ module.exports = app => {
             }
 
         }
+
+        app.log('fin')
 
         return checks;
     });
