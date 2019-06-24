@@ -59,7 +59,7 @@ module.exports = app => {
         // get folder from first file
         // check folder from pull request
         // save folder name
-        const folderName = dirname(files.data[1].filename);
+        const folderName = dirname(files.data[0].filename);
 
         if(folderName === '.') {
             // close pr with comment
@@ -89,8 +89,8 @@ module.exports = app => {
             app.log(user.login);
 
             // merge base check owner
-            // if(manifestRepoContent.maintainer !== user.login) {
-            if('fabianmieller' === user.login) {
+            if(manifestRepoContent.maintainer === user.login) {
+            // if('fabianmieller' === user.login) {
                 checks.push(
                     createChecks(
                         contextChecks,
@@ -139,75 +139,63 @@ module.exports = app => {
 
         // get manifest file with foldername
         // if not found get manifest file manuell with foldername
-        const { filename: manifestFilename } = files.data.find(ele =>
+        const manifestFile = files.data.find(ele =>
             ele.filename.includes('manifest.json')
         ) || {};
 
-        const {
-            data: { content: fileContent },
-        } = await context.github.repos.getContents({
-            owner: org,
-            repo: repo,
-            path: `${manifestFilename}?ref=${sha}`,
-        } || {});
+        if(Object.keys(manifestFile).length) {
 
-        if (fileContent === undefined ) {
-            return createChecks(
-                contextChecks,
-                pr,
-                org,
-                repo,
-                'Manifest Scanner',
-                'completed',
-                'action_required',
-                {
-                    title: '1 Issues found',
-                    summary: 'manifest.json not found',
-                }
-            )
-        }
+            const {
+                data: { content: fileContent },
+            } = await context.github.repos.getContents({
+                owner: org,
+                repo: repo,
+                path: `${manifestFile.filename}?ref=${sha}`,
+            });
 
-        const manifestContent = JSON.parse(
-            Buffer.from(fileContent, 'base64').toString()
-        );
-
-        // validate manifest file
-        if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
-            checks.push(
-                createChecks(
-                    contextChecks,
-                    pr,
-                    org,
-                    repo,
-                    'Manifest Scanner',
-                    'completed',
-                    'success',
-                    {
-                        title: 'Manifest file is valid',
-                        summary: '',
-                    }
-                )
+            const manifestContent = JSON.parse(
+                Buffer.from(fileContent, 'base64').toString()
             );
-        } else {
-            checks.push(
-                createChecks(
-                    contextChecks,
-                    pr,
-                    org,
-                    repo,
-                    'Manifest Scanner',
-                    'completed',
-                    'action_required',
-                    {
-                        title: response.errors.length + ' Issues found',
-                        summary: JSON.stringify(
-                            response.errors,
-                            null,
-                            2
-                        ),
-                    }
+
+            // validate manifest file
+            if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
+                checks.push(
+                    createChecks(
+                        contextChecks,
+                        pr,
+                        org,
+                        repo,
+                        'Manifest Scanner',
+                        'completed',
+                        'success',
+                        {
+                            title: 'Manifest file is valid',
+                            summary: '',
+                        }
+                    )
+                );
+            } else {
+                checks.push(
+                    createChecks(
+                        contextChecks,
+                        pr,
+                        org,
+                        repo,
+                        'Manifest Scanner',
+                        'completed',
+                        'action_required',
+                        {
+                            title: response.errors.length + ' Issues found',
+                            summary: JSON.stringify(
+                                response.errors,
+                                null,
+                                2
+                            ),
+                        }
+                    )
                 )
-            )
+            }
+
         }
 
         // version object key readme: path to readme
@@ -245,11 +233,11 @@ module.exports = app => {
                         pr,
                         org,
                         repo,
-                        'Other File Scanner',
+                        'File Scanner',
                         'completed',
-                        'action_required',
+                        'success',
                         {
-                            title: 'New files found',
+                            title: 'Pull request has no issues',
                             summary: '',
                         }
                     )
@@ -257,8 +245,6 @@ module.exports = app => {
             }
 
         }
-
-        app.log('fin')
 
         return checks;
     });
