@@ -3,7 +3,7 @@
  * @param {import('probot').Application} app
  */
 
-const { createChecks } = require('./scripts/createChecks');
+const { checkFolder, createChecks, checkMaintainer } = require('./scripts/helper');
 
 const fs = require('fs');
 const Ajv = require('ajv');
@@ -44,33 +44,52 @@ module.exports = app => {
         if (!pr || pr.state !== 'open') return;
 
         const checks = [];
-        const sha = pr.head.sha;
-        const user = pr.base.user;
-        const repo = pr.base.repo.name;
-        const org = pr.base.repo.owner.login;
-        const contextChecks = context.github.checks;
+        const options = {
+            app,
+            context,
+            pr,
+            sha: pr.head.sha,
+            user: pr.base.user,
+            repo: pr.base.repo.name,
+            org: pr.base.repo.owner.login,
+            contextChecks: context.github.checks,
+        };
 
         const files = await context.github.pullRequests.listFiles({
-            number: pr.number,
-            owner: org,
-            repo: repo,
+            number: options.pr.number,
+            owner: options.org,
+            repo: options.repo,
         });
 
         // get folder from first file
         // check folder from pull request
         // save folder name
+
         const folderName = dirname(files.data[0].filename);
 
-        if(folderName === '.') {
-            // close pr with comment
-            context.github.issues.createComment(context.issue({body: 'You are not allowed to create a pull request in this directory.'}))
-            context.github.issues.edit(context.issue({state: 'closed'}))
+        // ---- check folder -----
+
+        if (!checkFolder(folderName, files, options)) {
+            return createChecks(
+                options,
+                'File Scanner',
+                'completed',
+                'action_required',
+                {
+                    title: 'Pull request not allowed',
+                    summary: 'You are not allowed to create a pull request in different folders at the same time.',
+                }
+            )
         }
+
+        // -----------------------
+
+        // ---- check maintainer -----
 
         // get manifest file
         const manifestData = await context.github.repos.getContents({
-            owner: org,
-            repo: repo,
+            owner: options.org,
+            repo: options.repo,
             path: `${folderName}/manifest.json`,
         }).then(data => {
             return data;
@@ -80,23 +99,12 @@ module.exports = app => {
         });
 
         if(Object.keys(manifestData).length) {
+
             // parse manifest content
-            const manifestRepoContent = JSON.parse(
-                Buffer.from(manifestData.data.content, 'base64').toString()
-            );
-
-            app.log(manifestRepoContent.maintainer);
-            app.log(user.login);
-
-            // merge base check owner
-            if(manifestRepoContent.maintainer === user.login) {
-            // if('fabianmieller' === user.login) {
+            if(checkMaintainer(manifestData, options)) {
                 checks.push(
                     createChecks(
-                        contextChecks,
-                        pr,
-                        org,
-                        repo,
+                        options,
                         'Maintainer Scanner',
                         'completed',
                         'success',
@@ -108,10 +116,7 @@ module.exports = app => {
                 )
             } else {
                 return createChecks(
-                    contextChecks,
-                    pr,
-                    org,
-                    repo,
+                    options,
                     'Maintainer Scanner',
                     'completed',
                     'action_required',
@@ -121,21 +126,10 @@ module.exports = app => {
                     }
                 )
             }
-        } else {
-             // return createChecks(
-            //     contextChecks,
-            //     pr,
-            //     org,
-            //     repo,
-            //     'Manifest Scanner',
-            //     'completed',
-            //     'action_required',
-            //     {
-            //         title: '1 Issues found',
-            //         summary: 'manifest.json not found',
-            //     }
-            // );
+
         }
+
+        // -----------------------
 
         // get manifest file with foldername
         // if not found get manifest file manuell with foldername
@@ -161,10 +155,7 @@ module.exports = app => {
             if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
                 checks.push(
                     createChecks(
-                        contextChecks,
-                        pr,
-                        org,
-                        repo,
+                        options,
                         'Manifest Scanner',
                         'completed',
                         'success',
@@ -177,10 +168,7 @@ module.exports = app => {
             } else {
                 checks.push(
                     createChecks(
-                        contextChecks,
-                        pr,
-                        org,
-                        repo,
+                        options,
                         'Manifest Scanner',
                         'completed',
                         'action_required',
@@ -203,26 +191,6 @@ module.exports = app => {
 
         // check changed files
         for (const file of files.data) {
-            // get folder name and check with saved folder name
-            // only one folder for one pull request
-            app.log(`Filename: ${basename(file.filename)}`);
-            app.log(`Foldername: ${dirname(file.filename)}`);
-
-            if(dirname(file.filename) !== folderName) {
-                return createChecks(
-                    contextChecks,
-                    pr,
-                    org,
-                    repo,
-                    'File Scanner',
-                    'completed',
-                    'action_required',
-                    {
-                        title: 'Pull request not allowed',
-                        summary: 'You are not allowed to create a pull request in different folders at the same time.',
-                    }
-                )
-            }
 
             if (basename(file.filename) === 'manifest.json') {
                 // compare manifest json's
