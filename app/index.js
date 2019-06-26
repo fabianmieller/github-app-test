@@ -3,7 +3,7 @@
  * @param {import('probot').Application} app
  */
 
-const { checkFolder, createChecks, checkMaintainer } = require('./scripts/helper');
+const { checkFolder, createChecks, checkMaintainer, validateSchema } = require('./scripts/helper');
 
 const fs = require('fs');
 const Ajv = require('ajv');
@@ -15,27 +15,6 @@ const schema = fs.readFileSync('./config.json', 'utf8');
 ajv.addSchema(JSON.parse(schema), schemaName);
 
 module.exports = app => {
-    function errorResponse(schemaErrors) {
-        let errors = schemaErrors.map(error => {
-            return {
-                path: error.dataPath,
-                message: error.message,
-            };
-        });
-        return {
-            status: 'failed',
-            errors: errors,
-        };
-    }
-
-    function validateSchema(schema, content) {
-        let valid = ajv.validate(schema, content);
-        if (!valid) {
-            app.log(ajv.errorsText());
-            return errorResponse(ajv.errors);
-        }
-    }
-
     app.on('pull_request', async context => {
         // files: readme (multiple), manifest.json (1x), images (multiple)
 
@@ -55,7 +34,7 @@ module.exports = app => {
             contextChecks: context.github.checks,
         };
 
-        const files = await context.github.pullRequests.listFiles({
+        const { data: files } = await context.github.pullRequests.listFiles({
             number: options.pr.number,
             owner: options.org,
             repo: options.repo,
@@ -65,153 +44,147 @@ module.exports = app => {
         // check folder from pull request
         // save folder name
 
-        const folderName = dirname(files.data[0].filename);
+        const folderName = dirname(files[0].filename);
 
-        // ---- check folder -----
+        // ----- check folder -----
 
-        if (!checkFolder(folderName, files, options)) {
-            return createChecks(
-                options,
-                'File Scanner',
-                'completed',
-                'action_required',
-                {
-                    title: 'Pull request not allowed',
-                    summary: 'You are not allowed to create a pull request in different folders at the same time.',
-                }
-            )
+        if (checkFolder(folderName, files, options)) {
+            checks.push(
+                createChecks(options, 'Folder', 'success', {
+                    title: 'Plugin folder is correct',
+                })
+            );
+        } else {
+            return createChecks(options, 'Folder', 'action_required', {
+                title: 'Pull request not allowed',
+                summary:
+                    'You are not allowed to create a pull request in different folders at the same time.',
+            });
         }
 
         // -----------------------
 
-        // ---- check maintainer -----
+        // ----- check maintainer -----
 
         // get manifest file
-        const manifestData = await context.github.repos.getContents({
-            owner: options.org,
-            repo: options.repo,
-            path: `${folderName}/manifest.json`,
-        }).then(data => {
-            return data;
-        })
-        .catch(err => {
-            return {};
-        });
+        const manifestData = await context.github.repos
+            .getContents({
+                owner: options.org,
+                repo: options.repo,
+                path: `${folderName}/manifest.json`,
+            })
+            .catch(err => {
+                return {};
+            });
 
-        if(Object.keys(manifestData).length) {
+        const manifest = manifestData.length ? JSON.parse(Buffer.from(manifestData.data.content, 'base64').toString()) : undefined;
 
-            // parse manifest content
-            if(checkMaintainer(manifestData, options)) {
+        // parse manifest content
+        checks.push(checkMaintainer(manifest, options))
+
+        // wrap all with try catch and catch with checks
+
+        // -----------------------
+
+        const { data: pluginFolderFiles } = await context.github.repos
+            .getContents({
+                owner: options.org,
+                repo: options.repo,
+                path: `${folderName}?ref=${options.sha}`,
+            })
+            .catch(err => {
+                return {};
+            });
+
+        // ----- validate manifest -----
+
+        const manifestFile =
+            pluginFolderFiles.find(ele => ele.name.includes('manifest.json')) || {};
+
+        let fileContent;
+
+        if (Object.keys(manifestFile).length) {
+            const {
+                data: { content },
+            } = await context.github.repos.getContents({
+                owner: options.org,
+                repo: options.repo,
+                path: `${manifestFile.path}?ref=${options.sha}`,
+            });
+
+            fileContent = JSON.parse(Buffer.from(content, 'base64').toString());
+        }
+
+        if (fileContent) {
+            // validate manifest file
+            if ((manifestResponse = validateSchema(ajv, schemaName, fileContent))) {
                 checks.push(
-                    createChecks(
-                        options,
-                        'Maintainer Scanner',
-                        'completed',
-                        'success',
-                        {
-                            title: 'Pull request is allowed',
-                            summary: '',
-                        }
-                    )
-                )
+                    createChecks(options, 'Manifest', 'success', {
+                        title: 'Manifest file is valid',
+                    })
+                );
             } else {
-                return createChecks(
-                    options,
-                    'Maintainer Scanner',
-                    'completed',
-                    'action_required',
-                    {
-                        title: 'Pull request not allowed',
-                        summary: 'You are not allowed to create a pull request for this plugin.',
-                    }
-                )
+                checks.push(
+                    createChecks(options, 'Manifest', 'action_required', {
+                        title: manifestResponse.errors.length + ' Issues found',
+                        summary: JSON.stringify(manifestResponse.errors, null, 2),
+                    })
+                );
             }
-
+        } else {
+            return createChecks(options, 'Manifest', 'action_required', {
+                title: 'manifest.json not found',
+            });
         }
 
         // -----------------------
 
-        // get manifest file with foldername
-        // if not found get manifest file manuell with foldername
-        const manifestFile = files.data.find(ele =>
-            ele.filename.includes('manifest.json')
-        ) || {};
+        // ----- create file lists from manifest -----
 
-        if(Object.keys(manifestFile).length) {
+        const readmeList = [],
+            imageList = [];
 
-            const {
-                data: { content: fileContent },
-            } = await context.github.repos.getContents({
-                owner: org,
-                repo: repo,
-                path: `${manifestFile.filename}?ref=${sha}`,
-            });
+        fileContent.versions.forEach(v => {
+            if (v.readme && readmeList.indexOf(v.image) === -1) {
+                readmeList.push(v.readme);
+            }
+            if (v.image && imageList.indexOf(v.image) === -1) {
+                imageList.push(v.image);
+            }
+        });
 
-            const manifestContent = JSON.parse(
-                Buffer.from(fileContent, 'base64').toString()
-            );
+        // -----------------------
 
-            // validate manifest file
-            if (manifestResponse = validateSchema(schemaName, manifestContent) === undefined) {
-                checks.push(
-                    createChecks(
-                        options,
-                        'Manifest Scanner',
-                        'completed',
-                        'success',
-                        {
-                            title: 'Manifest file is valid',
-                            summary: '',
-                        }
-                    )
-                );
-            } else {
-                checks.push(
-                    createChecks(
-                        options,
-                        'Manifest Scanner',
-                        'completed',
-                        'action_required',
-                        {
-                            title: response.errors.length + ' Issues found',
-                            summary: JSON.stringify(
-                                response.errors,
-                                null,
-                                2
-                            ),
-                        }
-                    )
-                )
+        // check changed files with fileList
+        for (const { name } of pluginFolderFiles) {
+            if (name === 'manifest.json') {
+                continue;
             }
 
+            if ((i = readmeList.indexOf(name)) !== -1) {
+                readmeList.splice(i, 1);
+                continue;
+            }
+
+            if ((i = imageList.indexOf(name)) !== -1) {
+                imageList.splice(i, 1);
+                continue;
+            }
         }
 
-        // version object key readme: path to readme
-        // get all files from repo an check folder with readme path
-
-        // check changed files
-        for (const file of files.data) {
-
-            if (basename(file.filename) === 'manifest.json') {
-                // compare manifest json's
-            } else {
-                checks.push(
-                    createChecks(
-                        contextChecks,
-                        pr,
-                        org,
-                        repo,
-                        'File Scanner',
-                        'completed',
-                        'success',
-                        {
-                            title: 'Pull request has no issues',
-                            summary: '',
-                        }
-                    )
-                );
-            }
-
+        if (imageList.length !== 0 || readmeList.length !== 0) {
+            checks.push(
+                createChecks(options, 'Files', 'action_required', {
+                    title: 'Undefined files found',
+                    summary: `${readmeList.concat(imageList).join(', ')}`,
+                })
+            );
+        } else {
+            checks.push(
+                createChecks(options, 'Files', 'success', {
+                    title: 'All files ok',
+                })
+            );
         }
 
         return checks;

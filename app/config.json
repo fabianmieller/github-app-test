@@ -18,7 +18,8 @@
                                     },
                         "download": { "type": "string" },
                         "hash":     { "type": "string" },
-                        "readMe": { "type": "string" },
+                        "readme":   { "type": "string" },
+                        "image":   { "type": "string" },
                         "require":  {
 
                             "type": "object",
