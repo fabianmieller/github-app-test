@@ -1,0 +1,42 @@
+{
+    "type": "object",
+    "properties": {
+
+        "name":       { "type": "string" },
+        "maintainer": { "type": "string" },
+        "versions": {
+
+            "type": "array",
+            "items":
+                {
+                    "type": "object",
+                    "properties": {
+
+                        "version":  {
+                                        "type": "string",
+                                        "pattern": "^(([0-9]+)\\.){1,2}([0-9]+)$"
+                                    },
+                        "download": { "type": "string" },
+                        "hash":     { "type": "string" },
+                        "readme":   { "type": "string" },
+                        "image":   { "type": "string" },
+                        "require":  {
+
+                            "type": "object",
+                            "properties": {
+
+                                "php":          { "$ref": "#/properties/versions/items/properties/version" },
+                                "pro":          { "$ref": "#/properties/versions/items/properties/version" },
+                                "joomla":       { "$ref": "#/properties/versions/items/properties/version" },
+                                "wordpress":    { "$ref": "#/properties/versions/items/properties/version" }
+                            }
+                        }
+                    },
+                    "additionalProperties": false,
+                    "required": ["version", "download", "hash"]
+                }
+        }
+    },
+    "additionalProperties": false,
+    "required": ["name", "maintainer", "versions"]
+}
