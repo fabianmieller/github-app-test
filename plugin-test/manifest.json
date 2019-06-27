@@ -7,7 +7,6 @@
             "download": "http://downloadlink.com",
             "hash": "fb6e2acebd55c2c8144512399a71bb327c45806592c9283228a5c4920dcd12ad",
             "image": "logo.png",
-            "readme": "README-3.md",
             "require": {
                 "php": "7.2.19",
                 "pro": "1.20.0",
@@ -18,7 +17,6 @@
             "version": "0.0.2",
             "download": "http://downloadlink.com",
             "hash": "fb6e2acebd55c2c8144580e99a71bb327c45806592c9283228a5c4920dcd12ad",
-            "readme": "README-2.md",
             "image": "logo.png",
             "require": {
                 "php": "7.2.19",
